@@ -16,3 +16,4 @@ Bu proje, bir Linux Shell simülasyonu sağlar. Kullanıcıların aşağıdaki t
    ```bash
    ./shell
    
+.
