@@ -6,6 +6,8 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include "shell.h"
+
 
 #define MAX_ARGS 64
 #define MAX_COMMAND_LEN 1024
