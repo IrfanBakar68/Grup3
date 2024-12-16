@@ -16,11 +16,17 @@ Betül Kurt (G221210054) 2C
 #include <signal.h>
 #include "shell.h"
 
+// Makro tanımlamaları
 
-#define MAX_ARGS 64
+// Maksimum argüman sayısı
+#define MAX_ARGS 64 
+// Maksimum komut uzunluğu
 #define MAX_COMMAND_LEN 1024
+// Maksimum komut geçmişi sayısı
 #define MAX_HISTORY 100
+// Maksimum arka plan işi sayısı
 #define MAX_JOBS 100
+// Maksimum boru (pipe) sayısı
 #define MAX_PIPES 10
 
 // Fonksiyon Prototipleri
@@ -33,24 +39,26 @@ typedef struct {
     char command[MAX_COMMAND_LEN];
 } History;
 
-History history[MAX_HISTORY];
-int history_count = 0;
+History history[MAX_HISTORY]; // Komut geçmişini saklayan dizi
+int history_count = 0; // Mevcut komut geçmişi sayısı
 
 // Arka plan çalışan süreçlerin bilgisi
 typedef struct {
-    pid_t pid;
-    char command[MAX_COMMAND_LEN];
+    pid_t pid; // Sürecin PID değeri
+    char command[MAX_COMMAND_LEN]; // Sürecin çalıştırdığı komut
     int active;
 } Job;
 
-Job jobs[MAX_JOBS];
-int job_count = 0;
+Job jobs[MAX_JOBS]; // Arka plan işleri için dizı
+int job_count = 0; // Mevcut arka plan iş sayısı
 
 // Sinyal işleyici fonksiyonu
 void handle_signal(int signal) {
+    // Ctrl+C algılandığında
     if (signal == SIGINT) {
         printf("\nCtrl+C algılandı. Shell çalışmaya devam ediyor.\n> ");
         fflush(stdout);
+    // Ctrl+Z algılandığında
     } else if (signal == SIGTSTP) {
         printf("\nCtrl+Z devre dışı bırakıldı.\n> ");
         fflush(stdout);
@@ -62,6 +70,7 @@ void add_to_history(const char *command) {
     if (history_count < MAX_HISTORY) {
         strncpy(history[history_count++].command, command, MAX_COMMAND_LEN);
     } else {
+        // Geçmiş dolduysa, eski komutları kaydırarak yenisini ekle
         for (int i = 1; i < MAX_HISTORY; i++) {
             strncpy(history[i - 1].command, history[i].command, MAX_COMMAND_LEN);
         }
@@ -100,9 +109,10 @@ void wait_for_background_jobs() {
 
 // Boru ile komut çalıştırma
 void execute_piped_commands(char *commands[], int num_pipes) {
-    int pipe_fds[2 * num_pipes];
+    int pipe_fds[2 * num_pipes]; // Her boru için dosya tanımlayıcıları
     pid_t pid;
 
+    // Pipe'ları oluştur
     for (int i = 0; i < num_pipes; i++) {
         if (pipe(pipe_fds + i * 2) < 0) {
             perror("Pipe oluşturulamadı");
@@ -165,12 +175,12 @@ void execute_multiple_commands(char *command) {
 
 // Komut çalıştırma (Giriş/Çıkış Yönlendirme ve Boru Desteği)
 void execute_command(char *command) {
-    char *args[MAX_ARGS];
-    char *commands[MAX_PIPES];
+    char *args[MAX_ARGS]; // Argümanlar için dizi
+    char *commands[MAX_PIPES]; // Pipe ile ayrılmış komutlar
     int i = 0, num_pipes = 0;
     int background = 0;
-    char *input_file = NULL;
-    char *output_file = NULL;
+    char *input_file = NULL; // Giriş dosyası
+    char *output_file = NULL; // Çıkış dosyası
     int append = 0;
 
     // Çoklu komut desteği
@@ -186,6 +196,7 @@ void execute_command(char *command) {
         token = strtok(NULL, "|");
     }
 
+    // Eğer pipe kullanılıyorsa, pipe komutunu çalıştır
     if (num_pipes > 1) {
         execute_piped_commands(commands, num_pipes - 1);
         return;
@@ -287,14 +298,14 @@ int main() {
         printf("> ");
         fflush(stdout);
 
-        if (!fgets(command, sizeof(command), stdin)) {
+        if (!fgets(command, sizeof(command), stdin)) { // Kullanıcıdan komut oku
             perror("Komut okunamadı");
             continue;
         }
 
         command[strcspn(command, "\n")] = 0; // Yeni satır karakterini kaldır
 
-        if (strcmp(command, "quit") == 0) {
+        if (strcmp(command, "quit") == 0) { // "quit" komutu girildiyse shell'i kapat
             printf("Shell sonlandırılıyor, arka plan işlemleri bekleniyor...\n");
             wait_for_background_jobs();
             printf("Shell kapatıldı.\n");
