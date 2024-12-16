@@ -13,5 +13,6 @@ Bu proje, bir Linux Shell simülasyonu sağlar. Kullanıcıların aşağıdaki t
    ```bash
    gcc -Wall -g shell.c -o shell
 2. Projeyi çalıştırmak için şu komutu çalıştırın :
+   ```bash
    ./shell
    
