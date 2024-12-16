@@ -1,4 +1,4 @@
-# Custom Shell Implementation
+# Linux Uygulaması
 
 ## Proje Açıklaması
 Bu proje, bir Linux Shell simülasyonu sağlar. Kullanıcıların aşağıdaki temel shell özelliklerini kullanmasına olanak tanır:
