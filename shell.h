@@ -10,44 +10,44 @@ Betül Kurt (G221210054) 2C
 #define SHELL_H
 
 // Gerekli Kütüphaneler
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <string.h>
-#include <fcntl.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <signal.h>
+#include <stdio.h>   // Giriş/Çıkış işlemleri
+#include <stdlib.h>  // Yardımcı fonksiyonlar
+#include <unistd.h>  // POSIX sistem çağrıları
+#include <string.h>  // String işlemleri
+#include <fcntl.h>   // Dosya işlemleri
+#include <sys/types.h> // Veri türleri
+#include <sys/wait.h>  // Süreç kontrolü
+#include <signal.h>  // Sinyal işleme
 
 // Makrolar
-#define MAX_ARGS 64
-#define MAX_COMMAND_LEN 1024
-#define MAX_HISTORY 100
-#define MAX_JOBS 100
-#define MAX_PIPES 10
+#define MAX_ARGS 64              // Maksimum argüman sayısı
+#define MAX_COMMAND_LEN 1024     // Maksimum komut uzunluğu
+#define MAX_HISTORY 100          // Maksimum geçmiş komut sayısı
+#define MAX_JOBS 100             // Maksimum arka plan iş sayısı
+#define MAX_PIPES 10             // Maksimum boru hattı sayısı
 
 // Veri Yapıları
 typedef struct {
-    pid_t pid;
-    char command[MAX_COMMAND_LEN];
-    int active;
+    pid_t pid;                  // Süreç kimliği
+    char command[MAX_COMMAND_LEN]; // Komut
+    int active;                 // İş durumu
 } Job;
 
 // Global Değişkenler
-extern char history[MAX_HISTORY][MAX_COMMAND_LEN];
-extern int history_count;
+extern char history[MAX_HISTORY][MAX_COMMAND_LEN]; // Komut geçmişi
+extern int history_count;                          // Geçmiş sayacı
 
-extern Job jobs[MAX_JOBS];
-extern int job_count;
+extern Job jobs[MAX_JOBS];      // Arka plan işleri
+extern int job_count;           // İş sayısı
 
 // Fonksiyon Prototipleri
-void handle_signal(int signal);
-void add_to_history(const char *command);
-void print_history();
-void print_jobs();
-void wait_for_background_jobs();
-void execute_piped_commands(char *commands[], int num_pipes);
-void execute_multiple_commands(char *command);
-void execute_command(char *command);
+void handle_signal(int signal);                   // Sinyal işleme
+void add_to_history(const char *command);         // Geçmişe komut ekleme
+void print_history();                             // Komut geçmişini yazdırma
+void print_jobs();                                // Arka plan işleri yazdırma
+void wait_for_background_jobs();                  // Arka plan işleri bekleme
+void execute_piped_commands(char *commands[], int num_pipes); // Pipe ile komut çalıştırma
+void execute_multiple_commands(char *command);    // Birden fazla komut çalıştırma
+void execute_command(char *command);              // Tek komut çalıştırma
 
 #endif // SHELL_H
