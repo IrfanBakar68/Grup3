@@ -1,18 +1,20 @@
-#Hüseyin Göbekli (G211210041) 2B 
-#Okan Başol (G211210083) 2B 
+#Hüseyin Göbekli (G211210041) 2B
+#Okan Başol (G211210083) 2B
 #Şimal Ece Kazdal (G221210068) 2B
-#Muhammed İrfan Bakar (G221210596) 2B 
+#Muhammed İrfan Bakar (G221210596) 2B
 #Betül Kurt (G221210054) - 2C 
+# Derleme komutları
 CC=gcc
-CFLAGS=-Wall -g
+CFLAGS=-Wall -Wextra -std=c99
 
-all: shell
+# Çıktı adı
+TARGET=shell
 
-shell: shell.o
-	$(CC) $(CFLAGS) -o shell shell.o
+all: $(TARGET)
 
-shell.o: shell.c shell.h
-	$(CC) $(CFLAGS) -c shell.c
+$(TARGET): main.c
+	$(CC) $(CFLAGS) -o $(TARGET) main.c
 
 clean:
-	rm -f *.o shell
+	rm -f $(TARGET)
+
