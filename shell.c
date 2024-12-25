@@ -1,319 +1,311 @@
-/*
-Hüseyin Göbekli (G211210041) 2B 
-Okan Başol (G211210083) 2B 
-Şimal Ece Kazdal (G221210068) 2B 
-Muhammed İrfan Bakar (G221210596) 2B 
-Betül Kurt (G221210054) 2C  
-*/
+#define _POSIX_C_SOURCE 200809L
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <string.h>
-#include <fcntl.h>
+#include <unistd.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <fcntl.h>
 #include <signal.h>
-#include "shell.h"
 
-// Makro tanımlamaları
+#define HISTORY_SIZE 100 // Komut geçmişi için maksimum boyut
 
-// Maksimum argüman sayısı
-#define MAX_ARGS 64 
-// Maksimum komut uzunluğu
-#define MAX_COMMAND_LEN 1024
-// Maksimum komut geçmişi sayısı
-#define MAX_HISTORY 100
-// Maksimum arka plan işi sayısı
-#define MAX_JOBS 100
-// Maksimum boru (pipe) sayısı
-#define MAX_PIPES 10
+// Prototipler
+void handle_background_process(int sig);
+void add_to_history(const char *command);
+void print_history();
+int execute_history_command(const char *command);
+int execute_builtin(char *args[]);
+int execute_pipeline(char *commands[], int num_commands);
+void execute_sequential_commands(char *input);
 
-// Fonksiyon Prototipleri
-void execute_command(char *command); // Tek bir komut çalıştırma fonksiyonu prototipi
-void execute_multiple_commands(char *command); // Çoklu komutları işleme fonksiyonu prototipi
-void execute_piped_commands(char *commands[], int num_pipes); // Pipe desteği için prototip
-
-// Komut geçmişi
-typedef struct {
-    char command[MAX_COMMAND_LEN];
-} History;
-
-History history[MAX_HISTORY]; // Komut geçmişini saklayan dizi
-int history_count = 0; // Mevcut komut geçmişi sayısı
-
-// Arka plan çalışan süreçlerin bilgisi
-typedef struct {
-    pid_t pid; // Sürecin PID değeri
-    char command[MAX_COMMAND_LEN]; // Sürecin çalıştırdığı komut
-    int active;
-} Job;
-
-Job jobs[MAX_JOBS]; // Arka plan işleri için dizı
-int job_count = 0; // Mevcut arka plan iş sayısı
-
-// Sinyal işleyici fonksiyonu
-void handle_signal(int signal) {
-    // Ctrl+C algılandığında
-    if (signal == SIGINT) {
-        printf("\nCtrl+C algılandı. Shell çalışmaya devam ediyor.\n> ");
-        fflush(stdout);
-    // Ctrl+Z algılandığında
-    } else if (signal == SIGTSTP) {
-        printf("\nCtrl+Z devre dışı bırakıldı.\n> ");
-        fflush(stdout);
-    }
-}
+// Komut geçmişini tutan yapı
+char *history[HISTORY_SIZE];
+int history_count = 0;
 
 // Komut geçmişine ekleme
 void add_to_history(const char *command) {
-    if (history_count < MAX_HISTORY) {
-        strncpy(history[history_count++].command, command, MAX_COMMAND_LEN);
+    if (history_count < HISTORY_SIZE) {
+        history[history_count++] = strdup(command);
     } else {
-        // Geçmiş dolduysa, eski komutları kaydırarak yenisini ekle
-        for (int i = 1; i < MAX_HISTORY; i++) {
-            strncpy(history[i - 1].command, history[i].command, MAX_COMMAND_LEN);
+        free(history[0]);
+        for (int i = 1; i < HISTORY_SIZE; i++) {
+            history[i - 1] = history[i];
         }
-        strncpy(history[MAX_HISTORY - 1].command, command, MAX_COMMAND_LEN);
+        history[HISTORY_SIZE - 1] = strdup(command);
     }
 }
 
 // Komut geçmişini yazdırma
 void print_history() {
     for (int i = 0; i < history_count; i++) {
-        printf("%d: %s\n", i + 1, history[i].command);
+        printf("%d: %s", i + 1, history[i]);
     }
 }
 
-// Arka plan süreçlerini listeleme
-void print_jobs() {
-    for (int i = 0; i < job_count; i++) {
-        if (jobs[i].active) {
-            printf("[%d] PID: %d, Komut: %s\n", i + 1, jobs[i].pid, jobs[i].command);
+// Geçmiş komutunu çalıştırma
+int execute_history_command(const char *command) {
+    if (command[0] == '!') {
+        int num = atoi(command + 1);
+        if (num > 0 && num <= history_count) {
+            printf("Tekrar çalıştırılıyor: %s", history[num - 1]);
+            return system(history[num - 1]);
+        } else {
+            fprintf(stderr, "Hata: Geçersiz geçmiş komut numarası\n");
+            return -1;
         }
+    }
+    return 0; // Geçmiş komutu değil
+}
+
+// Arka plan süreçlerini yönetme
+void handle_background_process(int sig) {
+    (void)sig; // Kullanılmayan parametreyi işaretle, uyarıyı bastır
+    int status;
+    while (waitpid(-1, &status, WNOHANG) > 0) {
+        printf("[Arka planda bir süreç tamamlandı]\n");
     }
 }
 
-// Arka plan işlemleri bekleme
-void wait_for_background_jobs() {
-    for (int i = 0; i < job_count; i++) {
-        if (jobs[i].active) {
-            int status;
-            printf("Arka plan süreci bekleniyor. PID: %d\n", jobs[i].pid);
-            waitpid(jobs[i].pid, &status, 0);
-            printf("Süreç tamamlandı. PID: %d, Durum: %d\n", jobs[i].pid, WEXITSTATUS(status));
-            jobs[i].active = 0;
+
+// Yerleşik komutları çalıştırma
+int execute_builtin(char *args[]) {
+    if (strcmp(args[0], "cd") == 0) {
+        if (args[1] == NULL) {
+            fprintf(stderr, "cd: hedef belirtilmedi\n");
+        } else {
+            if (chdir(args[1]) != 0) {
+                perror("cd başarısız");
+            }
         }
+        return 1; // Yerleşik komut işlendi
+    } else if (strcmp(args[0], "exit") == 0) {
+        printf("Shell Sonlandırılıyor...\n");
+        exit(0);
+    } else if (strcmp(args[0], "history") == 0) {
+        print_history();
+        return 1;
     }
+    return 0; // Yerleşik komut değil
 }
 
-// Boru ile komut çalıştırma
-void execute_piped_commands(char *commands[], int num_pipes) {
-    int pipe_fds[2 * num_pipes]; // Her boru için dosya tanımlayıcıları
-    pid_t pid;
+// Boru komutlarını çalıştırma
+int execute_pipeline(char *commands[], int num_commands) {
+    int i;
+    int pipe_fd[2];
+    int prev_fd = -1;
 
-    // Pipe'ları oluştur
-    for (int i = 0; i < num_pipes; i++) {
-        if (pipe(pipe_fds + i * 2) < 0) {
-            perror("Pipe oluşturulamadı");
-            exit(EXIT_FAILURE);
+    for (i = 0; i < num_commands; i++) {
+        if (i < num_commands - 1) {
+            if (pipe(pipe_fd) == -1) {
+                perror("Pipe oluşturulamadı");
+                return -1;
+            }
         }
-    }
 
-    for (int i = 0; i <= num_pipes; i++) {
-        pid = fork();
+        pid_t pid = fork();
         if (pid == 0) {
-            // Pipe girişini ayarla
-            if (i != 0) {
-                dup2(pipe_fds[(i - 1) * 2], STDIN_FILENO);
+            if (prev_fd != -1) {
+                dup2(prev_fd, STDIN_FILENO);
+                close(prev_fd);
             }
-            // Pipe çıkışını ayarla
-            if (i != num_pipes) {
-                dup2(pipe_fds[i * 2 + 1], STDOUT_FILENO);
+            if (i < num_commands - 1) {
+                dup2(pipe_fd[1], STDOUT_FILENO);
+                close(pipe_fd[0]);
+                close(pipe_fd[1]);
+            }
+            char *args[] = {"/bin/sh", "-c", commands[i], NULL};
+            execvp(args[0], args);
+            perror("execvp başarısız");
+            exit(EXIT_FAILURE);
+        } else if (pid > 0) {
+            if (prev_fd != -1) {
+                close(prev_fd);
+            }
+            if (i < num_commands - 1) {
+                close(pipe_fd[1]);
+                prev_fd = pipe_fd[0];
+            }
+            waitpid(pid, NULL, 0);
+        } else {
+            perror("fork başarısız");
+            return -1;
+        }
+    }
+
+    return 0;
+}
+
+// Sıralı komutları çalıştırma
+void execute_sequential_commands(char *input) {
+    char *commands[64];
+    int num_commands = 0;
+
+    char *token = strtok(input, ";\n");
+    while (token != NULL && num_commands < 64) {
+        commands[num_commands++] = token;
+        token = strtok(NULL, ";\n");
+    }
+
+    for (int i = 0; i < num_commands; i++) {
+        char *current_command = commands[i];
+        char *args[64];
+        char *input_file = NULL;
+        char *output_file = NULL;
+        int background = 0;
+        int arg_count = 0;
+
+        char *sub_token = strtok(current_command, " \t\n");
+        while (sub_token != NULL) {
+            if (strcmp(sub_token, "<") == 0) {
+                input_file = strtok(NULL, " \t\n");
+            } else if (strcmp(sub_token, ">") == 0) {
+                output_file = strtok(NULL, " \t\n");
+            } else if (strcmp(sub_token, "&") == 0) {
+                background = 1;
+            } else {
+                args[arg_count++] = sub_token;
+            }
+            sub_token = strtok(NULL, " \t\n");
+        }
+        args[arg_count] = NULL;
+
+        if (args[0] != NULL && execute_builtin(args)) {
+            continue;
+        }
+
+        pid_t pid = fork();
+        if (pid == 0) {
+            if (input_file) {
+                int fd = open(input_file, O_RDONLY);
+                if (fd < 0) {
+                    perror("Giriş dosyası açılamadı");
+                    exit(EXIT_FAILURE);
+                }
+                dup2(fd, STDIN_FILENO);
+                close(fd);
             }
 
-            for (int j = 0; j < 2 * num_pipes; j++) {
-                close(pipe_fds[j]);
+            if (output_file) {
+                int fd = open(output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                if (fd < 0) {
+                    perror("Çıkış dosyası açılamadı");
+                    exit(EXIT_FAILURE);
+                }
+                dup2(fd, STDOUT_FILENO);
+                close(fd);
             }
-
-            char *args[MAX_ARGS];
-            int arg_idx = 0;
-            char *token = strtok(commands[i], " ");
-            while (token != NULL) {
-                args[arg_idx++] = token;
-                token = strtok(NULL, " ");
-            }
-            args[arg_idx] = NULL;
 
             execvp(args[0], args);
-            perror("Komut çalıştırılamadı");
+            perror("execvp başarısız");
             exit(EXIT_FAILURE);
-        } else if (pid < 0) {
-            perror("Fork hatası");
-            exit(EXIT_FAILURE);
-        }
-    }
-
-    for (int i = 0; i < 2 * num_pipes; i++) {
-        close(pipe_fds[i]);
-    }
-
-    for (int i = 0; i <= num_pipes; i++) {
-        wait(NULL);
-    }
-}
-
-// Çoklu komutları işleme
-void execute_multiple_commands(char *command) {
-    char *sub_command = strtok(command, ";");
-    while (sub_command != NULL) {
-        // Alt komutu çalıştır
-        execute_command(sub_command);
-        sub_command = strtok(NULL, ";");
-    }
-}
-
-// Komut çalıştırma (Giriş/Çıkış Yönlendirme ve Boru Desteği)
-void execute_command(char *command) {
-    char *args[MAX_ARGS]; // Argümanlar için dizi
-    char *commands[MAX_PIPES]; // Pipe ile ayrılmış komutlar
-    int i = 0, num_pipes = 0;
-    int background = 0;
-    char *input_file = NULL; // Giriş dosyası
-    char *output_file = NULL; // Çıkış dosyası
-    int append = 0;
-
-    // Çoklu komut desteği
-    if (strchr(command, ';') != NULL) {
-        execute_multiple_commands(command);
-        return;
-    }
-
-    // Komutları pipe'lara göre böl
-    char *token = strtok(command, "|");
-    while (token != NULL) {
-        commands[num_pipes++] = token;
-        token = strtok(NULL, "|");
-    }
-
-    // Eğer pipe kullanılıyorsa, pipe komutunu çalıştır
-    if (num_pipes > 1) {
-        execute_piped_commands(commands, num_pipes - 1);
-        return;
-    }
-
-    // Tekli komut ayrıştırma
-    token = strtok(command, " ");
-    while (token != NULL) {
-        if (strcmp(token, "&") == 0) {
-            background = 1;
-        } else if (strcmp(token, "<") == 0) {
-            token = strtok(NULL, " ");
-            input_file = token;
-        } else if (strcmp(token, ">") == 0) {
-            token = strtok(NULL, " ");
-            output_file = token;
-            append = 0;
-        } else if (strcmp(token, ">>") == 0) {
-            token = strtok(NULL, " ");
-            output_file = token;
-            append = 1;
-        } else {
-            args[i++] = token;
-        }
-        token = strtok(NULL, " ");
-    }
-    args[i] = NULL;
-
-    if (args[0] == NULL) {
-        return; // Boş komut
-    }
-
-    // Built-in komutlar
-    if (strcmp(args[0], "history") == 0) {
-        print_history();
-        return;
-    }
-
-    if (strcmp(args[0], "jobs") == 0) {
-        print_jobs();
-        return;
-    }
-
-    pid_t pid = fork();
-    if (pid == 0) {
-        // Giriş yönlendirme
-        if (input_file != NULL) {
-            int fd = open(input_file, O_RDONLY);
-            if (fd < 0) {
-                perror("Giriş dosyası açılamadı");
-                exit(EXIT_FAILURE);
-            }
-            dup2(fd, STDIN_FILENO);
-            close(fd);
-        }
-
-        // Çıkış yönlendirme
-        if (output_file != NULL) {
-            int fd;
-            if (append) {
-                fd = open(output_file, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        } else if (pid > 0) {
+            if (!background) {
+                waitpid(pid, NULL, 0);
             } else {
-                fd = open(output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                printf("[Arka planda çalışan PID: %d]\n", pid);
             }
-            if (fd < 0) {
-                perror("Çıkış dosyası açılamadı");
-                exit(EXIT_FAILURE);
-            }
-            dup2(fd, STDOUT_FILENO);
-            close(fd);
-        }
-
-        execvp(args[0], args);
-        perror("Komut çalıştırılamadı");
-        exit(EXIT_FAILURE);
-    } else if (pid > 0) {
-        if (background) {
-            jobs[job_count].pid = pid;
-            strncpy(jobs[job_count].command, command, MAX_COMMAND_LEN);
-            jobs[job_count].active = 1;
-            job_count++;
-            printf("Süreç arka planda çalışıyor. PID: %d\n", pid);
         } else {
-            waitpid(pid, NULL, 0);
+            perror("fork başarısız");
         }
-    } else {
-        perror("Fork hatası");
     }
 }
 
 int main() {
-    char command[MAX_COMMAND_LEN];
+    printf("Merhaba, Shell Uygulamasına Hoş Geldiniz!\n");
 
-    // Sinyalleri işlemek için sinyal işleyicilerini ayarla
-    signal(SIGINT, handle_signal);
-    signal(SIGTSTP, handle_signal);
+    signal(SIGCHLD, handle_background_process);
 
     while (1) {
         printf("> ");
         fflush(stdout);
 
-        if (!fgets(command, sizeof(command), stdin)) { // Kullanıcıdan komut oku
-            perror("Komut okunamadı");
-            continue;
-        }
-
-        command[strcspn(command, "\n")] = 0; // Yeni satır karakterini kaldır
-
-        if (strcmp(command, "quit") == 0) { // "quit" komutu girildiyse shell'i kapat
-            printf("Shell sonlandırılıyor, arka plan işlemleri bekleniyor...\n");
-            wait_for_background_jobs();
-            printf("Shell kapatıldı.\n");
+        char command[256];
+        if (fgets(command, sizeof(command), stdin) == NULL) {
             break;
         }
 
-        add_to_history(command); // Komutu geçmişe ekle
-        execute_command(command); // Komutu çalıştır
+        add_to_history(command);
+
+        if (strchr(command, ';')) {
+            execute_sequential_commands(command);
+        } else if (execute_history_command(command) == 0) {
+            char *commands[64];
+            int num_commands = 0;
+
+            char *token = strtok(command, "|\n");
+            while (token != NULL && num_commands < 64) {
+                commands[num_commands++] = token;
+                token = strtok(NULL, "|\n");
+            }
+
+            if (num_commands > 1) {
+                if (execute_pipeline(commands, num_commands) == -1) {
+                    fprintf(stderr, "Bir boru komutunda hata oluştu\n");
+                }
+            } else {
+                char *args[64];
+                char *input_file = NULL;
+                char *output_file = NULL;
+                int background = 0;
+                int arg_count = 0;
+
+                token = strtok(command, " \t\n");
+                while (token != NULL) {
+                    if (strcmp(token, "<") == 0) {
+                        input_file = strtok(NULL, " \t\n");
+                    } else if (strcmp(token, ">") == 0) {
+                        output_file = strtok(NULL, " \t\n");
+                    } else if (strcmp(token, "&") == 0) {
+                        background = 1;
+                    } else {
+                        args[arg_count++] = token;
+                    }
+                    token = strtok(NULL, " \t\n");
+                }
+                args[arg_count] = NULL;
+
+                if (args[0] != NULL && execute_builtin(args)) {
+                    continue;
+                }
+
+                pid_t pid = fork();
+                if (pid == 0) {
+                    if (input_file) {
+                        int fd = open(input_file, O_RDONLY);
+                        if (fd < 0) {
+                            perror("Giriş dosyası açılamadı");
+                            exit(EXIT_FAILURE);
+                        }
+                        dup2(fd, STDIN_FILENO);
+                        close(fd);
+                    }
+
+                    if (output_file) {
+                        int fd = open(output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                        if (fd < 0) {
+                            perror("Çıkış dosyası açılamadı");
+                            exit(EXIT_FAILURE);
+                        }
+                        dup2(fd, STDOUT_FILENO);
+                        close(fd);
+                    }
+
+                    execvp(args[0], args);
+                    perror("execvp başarısız");
+                    exit(EXIT_FAILURE);
+                } else if (pid > 0) {
+                    if (!background) {
+                        waitpid(pid, NULL, 0);
+                    } else {
+                        printf("[Arka planda çalışan PID: %d]\n", pid);
+                    }
+                } else {
+                    perror("fork başarısız");
+                }
+            }
+        }
     }
 
     return 0;
